@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: omr-scoring-app
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: 1
+      - key: UPLOAD_DIR
+        value: /app/uploaded_omr
+      - key: ANSWERKEY_DIR
+        value: /app/answer_keys
+    healthCheckPath: /health
+    autoDeploy: true

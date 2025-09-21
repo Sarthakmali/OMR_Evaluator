@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  omr-app:
+    build: .
+    ports:
+      - "8000:8000"  # FastAPI backend
+      - "8501:8501"  # Streamlit frontend
+    volumes:
+      - ./uploaded_omr:/app/uploaded_omr
+      - ./answer_keys:/app/answer_keys
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped

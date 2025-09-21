@@ -1,0 +1,255 @@
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+import os
+import json
+import shutil
+import re
+import csv
+from pathlib import Path
+
+from omr_scoring import omr_detect_and_score
+
+app = FastAPI(title="OMR Proxy + Key Manager")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Use environment variables for cloud deployment
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploaded_omr")
+ANSWERKEY_DIR = os.getenv("ANSWERKEY_DIR", "answer_keys")
+
+# Ensure directories exist
+Path(UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+Path(ANSWERKEY_DIR).mkdir(parents=True, exist_ok=True)
+
+SECTIONS = [
+    ("Python", 1, 20),
+    ("EDA", 21, 40),
+    ("SQL", 41, 60),
+    ("Power BI", 61, 80),
+    ("Statistics", 81, 100)
+]
+SECTION_NAMES = [sec for sec, _, _ in SECTIONS]
+ALIASES = {
+    "PowerBI": "Power BI", "Power Bi": "Power BI", "adv stats": "Statistics",
+    "Adv Stats": "Statistics", "statastics": "Statistics", "Statistics": "Statistics"
+}
+
+def parse_sectionwise_block(text):
+    key = {}
+    current_section = None
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    for line in lines:
+        # Section header?
+        section = None
+        check = line.lower()
+        for s in SECTION_NAMES:
+            if check == s.lower():
+                section = s
+                break
+        if section or line in ALIASES:
+            current_section = ALIASES.get(line, section or line)
+            if current_section not in key:
+                key[current_section] = {}
+            continue
+        m = re.match(r"(\d+)[\s\-\.]+([a-dA-D, ]+)", line)
+        if m and current_section:
+            qn = m.group(1)
+            ans = m.group(2).replace(" ", "").lower()
+            key[current_section][f"Q{qn}"] = ans
+    # Drop empty sections
+    key = {sec:v for sec,v in key.items() if v}
+    return key
+
+@app.post("/create-bulk-answerkey")
+async def create_bulk_answerkey(set_name: str = Form(...), block: str = Form(...)):
+    section_answerkey = parse_sectionwise_block(block)
+    if not section_answerkey:
+        raise HTTPException(400, "No answers parsed from block, check formatting!")
+    fname = os.path.join(ANSWERKEY_DIR, f"answers_{set_name.upper()}.json")
+    with open(fname, "w", encoding="utf-8") as f:
+        json.dump(section_answerkey, f, indent=2)
+    return JSONResponse({"message": f"Saved sectionwise key as {fname} ({sum(len(x) for x in section_answerkey.values())} questions)."})
+
+@app.get("/key-exists/{set_name}")
+def key_exists(set_name: str):
+    path = os.path.join(ANSWERKEY_DIR, f"answers_{set_name.upper()}.json")
+    return {"exists": os.path.exists(path)}
+
+@app.post("/upload-omr")
+async def upload_omr(
+    student_name: str = Form(...),
+    roll_no: str = Form(...),
+    omr_set: str = Form(...),
+    file: UploadFile = File(...)
+):
+    set_dir = os.path.join(UPLOAD_DIR, omr_set.upper())
+    os.makedirs(set_dir, exist_ok=True)
+    ext = os.path.splitext(file.filename)[1]
+    base_fname = f"{student_name.replace(' ','_')}_{roll_no}_{omr_set.upper()}{ext}"
+    save_path = os.path.join(set_dir, base_fname)
+    with open(save_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    return JSONResponse({"omr_path": save_path, "filename": base_fname})
+
+@app.post("/evaluate")
+async def evaluate(
+    student_name: str = Form(...),
+    roll_no: str = Form(...),
+    omr_set: str = Form(...),
+    csv_filename: str = Form(None)
+):
+    set_name = omr_set.upper()
+    anskey_file = os.path.join(ANSWERKEY_DIR, f"answers_{set_name}.json")
+    if not os.path.exists(anskey_file):
+        raise HTTPException(400, f"Answer key for set {set_name} not found. Upload that first.")
+    set_dir = os.path.join(UPLOAD_DIR, set_name)
+    img_file = None
+    for ext in (".jpg", ".jpeg", ".png"):
+        candidate = os.path.join(set_dir, f"{student_name.replace(' ','_')}_{roll_no}_{set_name}{ext}")
+        if os.path.exists(candidate):
+            img_file = candidate
+            break
+    if not img_file:
+        raise HTTPException(400, "OMR image file not found for this student/set.")
+    try:
+        detected_sectionwise, section_scores = omr_detect_and_score(img_file, anskey_file)
+    except Exception as e:
+        raise HTTPException(500, f"OMR detection error: {e}")
+
+    # Use selected CSV file or default to scores.csv
+    if csv_filename:
+        outcsv = os.path.join(UPLOAD_DIR, csv_filename)
+    else:
+        outcsv = os.path.join(UPLOAD_DIR, "scores.csv")
+    
+    # Calculate percentage (assuming total possible marks is 100)
+    total_possible = 100
+    percentage = round((section_scores["Total"] / total_possible) * 100, 2) if total_possible > 0 else 0
+    
+    # Prepare row data with all required columns
+    row = [
+        student_name,  # Student Name
+        roll_no,       # Roll Number
+        section_scores.get("Python", 0),      # Python
+        section_scores.get("EDA", 0),         # EDA
+        section_scores.get("SQL", 0),         # SQL
+        section_scores.get("Power BI", 0),    # Power BI
+        section_scores.get("Statistics", 0),  # Statistics
+        section_scores["Total"],              # Marks Obtained
+        total_possible,                       # Total Marks
+        percentage,                           # Percentage
+        set_name                              # Set Name
+    ]
+    
+    # Check if file exists and has headers
+    is_new = not os.path.exists(outcsv)
+    if is_new:
+        # Create new file with headers
+        headers = ["Student Name", "Roll Number", "Python", "EDA", "SQL", "Power BI", "Statistics", 
+                  "Marks Obtained", "Total Marks", "Percentage", "Set Name"]
+        with open(outcsv, "w", newline="", encoding="utf-8") as fcsv:
+            writer = csv.writer(fcsv)
+            writer.writerow(headers)
+            writer.writerow(row)
+    else:
+        # Append to existing file
+        with open(outcsv, "a", newline="", encoding="utf-8") as fcsv:
+            writer = csv.writer(fcsv)
+            writer.writerow(row)
+
+    return {
+        "name": student_name,
+        "roll_no": roll_no,
+        "set": set_name,
+        "score": section_scores["Total"],
+        "section_scores": section_scores,
+        "percentage": percentage,
+        "csv_file": csv_filename or "scores.csv"
+    }
+
+@app.get("/all-scores")
+def all_scores():
+    csv_file = os.path.join(UPLOAD_DIR, "scores.csv")
+    if not os.path.exists(csv_file):
+        return []
+    with open(csv_file, newline="") as f:
+        reader = list(csv.reader(f))
+    if not reader:
+        return []
+    keys = reader[0]
+    results = [dict(zip(keys, row)) for row in reader[1:]]
+    return results
+
+@app.get("/answer-key-sets")
+def get_answer_key_sets():
+    """Get list of all existing answer key sets"""
+    sets = []
+    if os.path.exists(ANSWERKEY_DIR):
+        for filename in os.listdir(ANSWERKEY_DIR):
+            if filename.startswith("answers_") and filename.endswith(".json"):
+                set_name = filename.replace("answers_", "").replace(".json", "")
+                sets.append(set_name)
+    return {"sets": sorted(sets)}
+
+@app.get("/csv-files")
+def get_csv_files():
+    """Get list of all existing CSV files"""
+    csv_files = []
+    if os.path.exists(UPLOAD_DIR):
+        for filename in os.listdir(UPLOAD_DIR):
+            if filename.endswith(".csv"):
+                csv_files.append(filename)
+    return {"files": sorted(csv_files)}
+
+@app.post("/create-csv")
+async def create_csv_file(filename: str = Form(...)):
+    """Create a new CSV file with headers"""
+    if not filename.endswith(".csv"):
+        filename += ".csv"
+    
+    csv_path = os.path.join(UPLOAD_DIR, filename)
+    
+    # Check if file already exists
+    if os.path.exists(csv_path):
+        raise HTTPException(400, f"CSV file '{filename}' already exists!")
+    
+    # Create CSV with headers
+    headers = ["Student Name", "Roll Number", "Python", "EDA", "SQL", "Power BI", "Statistics", 
+              "Marks Obtained", "Total Marks", "Percentage", "Set Name"]
+    
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(headers)
+    
+    return {"message": f"CSV file '{filename}' created successfully!", "filename": filename}
+
+@app.get("/current-csv")
+def get_current_csv():
+    """Get the currently selected CSV file"""
+    # This will be managed by the frontend session state
+    return {"current_csv": None}
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint for deployment"""
+    return {"status": "healthy", "message": "OMR API is running"}
+
+@app.get("/")
+def root():
+    """Root endpoint with API information"""
+    return {
+        "message": "OMR Scoring API",
+        "version": "1.0.0",
+        "endpoints": {
+            "health": "/health",
+            "docs": "/docs",
+            "answer_keys": "/answer-key-sets",
+            "csv_files": "/csv-files"
+        }
+    }
