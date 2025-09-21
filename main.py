@@ -246,6 +246,7 @@ def root():
     return {
         "message": "OMR Scoring API",
         "version": "1.0.0",
+        "streamlit_app": "http://localhost:8501",
         "endpoints": {
             "health": "/health",
             "docs": "/docs",
