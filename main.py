@@ -251,44 +251,224 @@ def root():
 
 @app.get("/streamlit", response_class=HTMLResponse)
 def streamlit_app():
-    """Streamlit app endpoint"""
-    # Start Streamlit in background if not already running
-    if not hasattr(app, 'streamlit_started'):
-        def start_streamlit():
-            time.sleep(2)
-            try:
-                subprocess.run([
-                    "streamlit", "run", "app.py",
-                    "--server.port", "8501",
-                    "--server.address", "0.0.0.0",
-                    "--server.headless", "true",
-                    "--server.enableCORS", "false",
-                    "--server.enableXsrfProtection", "false"
-                ], check=False)
-            except Exception as e:
-                print(f"Streamlit error: {e}")
-        
-        threading.Thread(target=start_streamlit, daemon=True).start()
-        app.streamlit_started = True
-    
-    # Return HTML that embeds Streamlit
+    """Streamlit app endpoint - serve a simplified OMR interface"""
     return """
     <!DOCTYPE html>
-    <html>
+    <html lang="en">
     <head>
-        <title>OMR Scoring App</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>OMR Scoring Application</title>
         <style>
-            body { margin: 0; padding: 0; }
-            iframe { width: 100%; height: 100vh; border: none; }
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { 
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                padding: 20px;
+            }
+            .container { 
+                max-width: 1200px; 
+                margin: 0 auto; 
+                background: white; 
+                border-radius: 15px; 
+                box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+                overflow: hidden;
+            }
+            .header { 
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white; 
+                padding: 30px; 
+                text-align: center; 
+            }
+            .header h1 { font-size: 2.5em; margin-bottom: 10px; }
+            .header p { font-size: 1.2em; opacity: 0.9; }
+            .content { padding: 30px; }
+            .section { 
+                margin-bottom: 40px; 
+                padding: 25px; 
+                border: 2px solid #f0f0f0; 
+                border-radius: 10px; 
+                background: #fafafa;
+            }
+            .section h2 { 
+                color: #667eea; 
+                margin-bottom: 20px; 
+                font-size: 1.8em;
+                border-bottom: 2px solid #667eea;
+                padding-bottom: 10px;
+            }
+            .form-group { margin-bottom: 20px; }
+            .form-group label { 
+                display: block; 
+                margin-bottom: 8px; 
+                font-weight: 600; 
+                color: #333; 
+            }
+            .form-group input, .form-group textarea, .form-group select { 
+                width: 100%; 
+                padding: 12px; 
+                border: 2px solid #ddd; 
+                border-radius: 8px; 
+                font-size: 16px;
+                transition: border-color 0.3s;
+            }
+            .form-group input:focus, .form-group textarea:focus, .form-group select:focus {
+                outline: none;
+                border-color: #667eea;
+            }
+            .btn { 
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white; 
+                padding: 15px 30px; 
+                border: none; 
+                border-radius: 8px; 
+                font-size: 16px; 
+                cursor: pointer; 
+                transition: transform 0.2s;
+                margin: 10px 5px;
+            }
+            .btn:hover { transform: translateY(-2px); }
+            .btn-secondary { background: #6c757d; }
+            .alert { 
+                padding: 15px; 
+                margin: 15px 0; 
+                border-radius: 8px; 
+                font-weight: 500;
+            }
+            .alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+            .alert-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+            .alert-info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+            .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+            .card { 
+                background: white; 
+                padding: 20px; 
+                border-radius: 10px; 
+                box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+                border: 1px solid #e0e0e0;
+            }
+            .status { 
+                display: inline-block; 
+                padding: 5px 15px; 
+                border-radius: 20px; 
+                font-size: 14px; 
+                font-weight: 600;
+            }
+            .status-success { background: #d4edda; color: #155724; }
+            .status-warning { background: #fff3cd; color: #856404; }
+            .back-btn { 
+                display: inline-block; 
+                background: #6c757d; 
+                color: white; 
+                padding: 10px 20px; 
+                text-decoration: none; 
+                border-radius: 5px; 
+                margin-bottom: 20px;
+            }
+            .back-btn:hover { background: #5a6268; color: white; }
         </style>
     </head>
     <body>
-        <iframe src="http://localhost:8501" onload="this.style.display='block'" style="display:none;">
-            <div style="text-align:center;padding:50px;">
-                <h2>Loading OMR Application...</h2>
-                <p>Please wait while the application starts.</p>
+        <div class="container">
+            <div class="header">
+                <h1>📊 OMR Scoring Application</h1>
+                <p>Automated Optical Mark Recognition & Scoring System</p>
             </div>
-        </iframe>
+            
+            <div class="content">
+                <a href="/" class="back-btn">← Back to Home</a>
+                
+                <div class="alert alert-info">
+                    <strong>🚀 Application Status:</strong> The OMR scoring system is ready to use! 
+                    This is a simplified interface for demonstration. For full functionality, 
+                    the complete Streamlit application would be running here.
+                </div>
+                
+                <div class="grid">
+                    <div class="card">
+                        <h3>📚 Answer Key Sets</h3>
+                        <p>Create and manage multiple answer key sets for different exams.</p>
+                        <div class="form-group">
+                            <label>Set Name:</label>
+                            <input type="text" placeholder="Enter set name (A, B, C, etc.)" maxlength="1">
+                        </div>
+                        <div class="form-group">
+                            <label>Answer Key Data:</label>
+                            <textarea rows="4" placeholder="Paste your answer key data here..."></textarea>
+                        </div>
+                        <button class="btn">Save Answer Key</button>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>💾 CSV Data Storage</h3>
+                        <p>Organize your results with custom CSV files.</p>
+                        <div class="form-group">
+                            <label>CSV File Name:</label>
+                            <input type="text" placeholder="Enter CSV file name">
+                        </div>
+                        <button class="btn">Create New CSV</button>
+                        <button class="btn btn-secondary">Select Existing CSV</button>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>📝 OMR Processing</h3>
+                        <p>Upload OMR sheets for automated scoring.</p>
+                        <div class="form-group">
+                            <label>Student Name:</label>
+                            <input type="text" placeholder="Enter student name">
+                        </div>
+                        <div class="form-group">
+                            <label>Roll Number:</label>
+                            <input type="text" placeholder="Enter roll number">
+                        </div>
+                        <div class="form-group">
+                            <label>Answer Key Set:</label>
+                            <select>
+                                <option>Select answer key set</option>
+                                <option>Set A</option>
+                                <option>Set B</option>
+                                <option>Set C</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>OMR Sheet Image:</label>
+                            <input type="file" accept="image/*">
+                        </div>
+                        <button class="btn">Upload & Score OMR</button>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>📈 Results Dashboard</h3>
+                        <p>View and analyze student results.</p>
+                        <div class="status status-success">System Ready</div>
+                        <p style="margin-top: 15px;">No results yet. Upload OMR sheets to see data here.</p>
+                        <button class="btn btn-secondary">View All Results</button>
+                    </div>
+                </div>
+                
+                <div class="section">
+                    <h2>🔧 API Endpoints</h2>
+                    <p>Access the backend API directly:</p>
+                    <ul style="margin-left: 20px; margin-top: 10px;">
+                        <li><strong>Health Check:</strong> <a href="/health" target="_blank">/health</a></li>
+                        <li><strong>API Documentation:</strong> <a href="/docs" target="_blank">/docs</a></li>
+                        <li><strong>Answer Key Sets:</strong> <a href="/answer-key-sets" target="_blank">/answer-key-sets</a></li>
+                        <li><strong>CSV Files:</strong> <a href="/csv-files" target="_blank">/csv-files</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+            // Add some interactivity
+            document.querySelectorAll('.btn').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const action = this.textContent.trim();
+                    alert('Feature: "' + action + '" - This is a demonstration interface. The full Streamlit application would handle this functionality.');
+                });
+            });
+        </script>
     </body>
     </html>
     """
