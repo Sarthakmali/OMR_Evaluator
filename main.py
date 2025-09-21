@@ -107,7 +107,7 @@ async def evaluate(
     omr_set: str = Form(...),
     csv_filename: str = Form(None)
 ):
-    set_name = omr_set.upper()
+    set_name = omr_set.strip().replace("SET ", "").replace("Set ", "").replace("set ", "").replace(" ", "").upper()
     anskey_file = os.path.join(ANSWERKEY_DIR, f"answers_{set_name}.json")
     if not os.path.exists(anskey_file):
         raise HTTPException(400, f"Answer key for set {set_name} not found. Upload that first.")
