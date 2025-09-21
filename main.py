@@ -459,11 +459,11 @@ def streamlit_app():
         </div>
         
         <script>
-            // Add interactivity and API integration
+            // Add real functionality
             document.addEventListener('DOMContentLoaded', function() {
-                // Load existing answer key sets
                 loadAnswerKeySets();
                 loadCSVFiles();
+                loadResults();
                 
                 // Add event listeners
                 document.querySelectorAll('.btn').forEach(btn => {
@@ -475,12 +475,12 @@ def streamlit_app():
                             saveAnswerKey();
                         } else if (action === 'Create New CSV') {
                             createCSV();
+                        } else if (action === 'Select Existing CSV') {
+                            selectCSV();
                         } else if (action === 'Upload & Score OMR') {
                             uploadOMR();
                         } else if (action === 'View All Results') {
                             viewResults();
-                        } else {
-                            alert('Feature: "' + action + '" - This interface connects to the backend API for full functionality.');
                         }
                     });
                 });
@@ -490,7 +490,7 @@ def streamlit_app():
                 try {
                     const response = await fetch('/answer-key-sets');
                     const data = await response.json();
-                    console.log('Answer key sets:', data);
+                    updateAnswerKeyDisplay(data.sets || []);
                 } catch (error) {
                     console.log('Error loading answer key sets:', error);
                 }
@@ -500,26 +500,191 @@ def streamlit_app():
                 try {
                     const response = await fetch('/csv-files');
                     const data = await response.json();
-                    console.log('CSV files:', data);
+                    updateCSVDisplay(data.files || []);
                 } catch (error) {
                     console.log('Error loading CSV files:', error);
                 }
             }
             
-            function saveAnswerKey() {
-                alert('Answer Key Management: This would connect to the /create-bulk-answerkey API endpoint to save answer keys.');
+            async function loadResults() {
+                try {
+                    const response = await fetch('/all-scores');
+                    const data = await response.json();
+                    updateResultsDisplay(data);
+                } catch (error) {
+                    console.log('Error loading results:', error);
+                }
             }
             
-            function createCSV() {
-                alert('CSV Creation: This would connect to the /create-csv API endpoint to create new CSV files.');
+            function updateAnswerKeyDisplay(sets) {
+                const display = document.querySelector('.answer-key-display') || createDisplay('answer-key-display', 'Answer Key Sets');
+                display.innerHTML = sets.length > 0 ? 
+                    'Available Sets: ' + sets.join(', ') : 
+                    'No answer key sets created yet.';
             }
             
-            function uploadOMR() {
-                alert('OMR Upload: This would connect to the /upload-omr and /evaluate API endpoints to process OMR sheets.');
+            function updateCSVDisplay(files) {
+                const display = document.querySelector('.csv-display') || createDisplay('csv-display', 'CSV Files');
+                display.innerHTML = files.length > 0 ? 
+                    'Available Files: ' + files.join(', ') : 
+                    'No CSV files created yet.';
+            }
+            
+            function updateResultsDisplay(results) {
+                const display = document.querySelector('.results-display') || createDisplay('results-display', 'Results');
+                if (results && results.length > 0) {
+                    let html = '<table style="width:100%; border-collapse: collapse;"><tr><th>Name</th><th>Roll</th><th>Score</th><th>Set</th></tr>';
+                    results.forEach(result => {
+                        html += `<tr><td>${result.Name || result.name || 'N/A'}</td><td>${result.Roll || result.roll || 'N/A'}</td><td>${result.Total || result.total || 'N/A'}</td><td>${result.Set || result.set || 'N/A'}</td></tr>`;
+                    });
+                    html += '</table>';
+                    display.innerHTML = html;
+                } else {
+                    display.innerHTML = 'No results available yet. Upload OMR sheets to see results here.';
+                }
+            }
+            
+            function createDisplay(className, title) {
+                const section = document.querySelector('.section');
+                const display = document.createElement('div');
+                display.className = className;
+                display.style.cssText = 'margin: 15px 0; padding: 15px; background: #f8f9fa; border-radius: 8px; border: 1px solid #dee2e6;';
+                section.appendChild(display);
+                return display;
+            }
+            
+            async function saveAnswerKey() {
+                const setName = document.querySelector('input[placeholder*="set name"]').value;
+                const answerData = document.querySelector('textarea[placeholder*="answer key data"]').value;
+                
+                if (!setName || !answerData) {
+                    alert('Please enter both set name and answer key data!');
+                    return;
+                }
+                
+                try {
+                    const formData = new FormData();
+                    formData.append('set_name', setName);
+                    formData.append('block', answerData);
+                    
+                    const response = await fetch('/create-bulk-answerkey', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    if (response.ok) {
+                        const result = await response.json();
+                        alert('✅ ' + result.message);
+                        document.querySelector('input[placeholder*="set name"]').value = '';
+                        document.querySelector('textarea[placeholder*="answer key data"]').value = '';
+                        loadAnswerKeySets();
+                    } else {
+                        const error = await response.text();
+                        alert('❌ Error: ' + error);
+                    }
+                } catch (error) {
+                    alert('❌ Error saving answer key: ' + error.message);
+                }
+            }
+            
+            async function createCSV() {
+                const csvName = document.querySelector('input[placeholder*="CSV file name"]').value;
+                
+                if (!csvName) {
+                    alert('Please enter a CSV file name!');
+                    return;
+                }
+                
+                try {
+                    const formData = new FormData();
+                    formData.append('filename', csvName);
+                    
+                    const response = await fetch('/create-csv', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    if (response.ok) {
+                        const result = await response.json();
+                        alert('✅ ' + result.message);
+                        document.querySelector('input[placeholder*="CSV file name"]').value = '';
+                        loadCSVFiles();
+                    } else {
+                        const error = await response.text();
+                        alert('❌ Error: ' + error);
+                    }
+                } catch (error) {
+                    alert('❌ Error creating CSV: ' + error.message);
+                }
+            }
+            
+            function selectCSV() {
+                alert('CSV Selection: This would show a dropdown of available CSV files for selection.');
+            }
+            
+            async function uploadOMR() {
+                const studentName = document.querySelector('input[placeholder*="student name"]').value;
+                const rollNo = document.querySelector('input[placeholder*="roll number"]').value;
+                const omrSet = document.querySelector('select').value;
+                const fileInput = document.querySelector('input[type="file"]');
+                
+                if (!studentName || !rollNo || !omrSet || !fileInput.files[0]) {
+                    alert('Please fill all fields and select an image file!');
+                    return;
+                }
+                
+                try {
+                    // Upload OMR
+                    const formData = new FormData();
+                    formData.append('file', fileInput.files[0]);
+                    formData.append('student_name', studentName);
+                    formData.append('roll_no', rollNo);
+                    formData.append('omr_set', omrSet);
+                    
+                    const uploadResponse = await fetch('/upload-omr', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    if (uploadResponse.ok) {
+                        // Evaluate OMR
+                        const evalData = new FormData();
+                        evalData.append('student_name', studentName);
+                        evalData.append('roll_no', rollNo);
+                        evalData.append('omr_set', omrSet);
+                        
+                        const evalResponse = await fetch('/evaluate', {
+                            method: 'POST',
+                            body: evalData
+                        });
+                        
+                        if (evalResponse.ok) {
+                            const result = await evalResponse.json();
+                            alert(`✅ OMR Processed Successfully!\\nScore: ${result.score}/100\\nPercentage: ${result.percentage}%\\nSet: ${result.set}`);
+                            
+                            // Clear form
+                            document.querySelector('input[placeholder*="student name"]').value = '';
+                            document.querySelector('input[placeholder*="roll number"]').value = '';
+                            document.querySelector('select').value = '';
+                            fileInput.value = '';
+                            
+                            loadResults();
+                        } else {
+                            const error = await evalResponse.text();
+                            alert('❌ Error evaluating OMR: ' + error);
+                        }
+                    } else {
+                        const error = await uploadResponse.text();
+                        alert('❌ Error uploading OMR: ' + error);
+                    }
+                } catch (error) {
+                    alert('❌ Error processing OMR: ' + error.message);
+                }
             }
             
             function viewResults() {
-                alert('Results View: This would connect to the /all-scores API endpoint to display student results.');
+                loadResults();
+                alert('Results refreshed! Check the Results Dashboard section below.');
             }
         </script>
     </body>
