@@ -1,30 +1,31 @@
 # Python
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
+*.pyc
+*.pyo
+*.pyd
 env/
 venv/
-ENV/
-env.bak/
-venv.bak/
+.venv/
 
-# IDE
+# Data and runtime artifacts
+uploaded_omr/
+answer_keys/
+*.sqlite3
+*.db
+
+# Packages & builds
+*.egg-info/
+dist/
+build/
+
+# Editor
 .vscode/
 .idea/
 *.swp
-*.swo
 
 # OS
 .DS_Store
 Thumbs.db
-
-# Local data (will be created in production)
-uploaded_omr/
-answer_keys/
-data/
-
 # Logs
 *.log
 

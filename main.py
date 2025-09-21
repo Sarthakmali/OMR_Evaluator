@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 import os
 import json
@@ -11,6 +11,7 @@ from pathlib import Path
 import subprocess
 import threading
 import time
+import logging
 
 from omr_scoring import omr_detect_and_score
 
@@ -30,6 +31,19 @@ ANSWERKEY_DIR = os.getenv("ANSWERKEY_DIR", "answer_keys")
 Path(UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
 Path(ANSWERKEY_DIR).mkdir(parents=True, exist_ok=True)
 
+# Mount static folders so uploaded files and keys are accessible (optional)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+app.mount("/answer_keys", StaticFiles(directory=ANSWERKEY_DIR), name="answer_keys")
+
+# Setup basic logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("omr_api")
+
+@app.on_event("startup")
+def on_startup():
+    logger.info("Starting OMR API")
+    logger.info(f"UPLOAD_DIR={UPLOAD_DIR}, ANSWERKEY_DIR={ANSWERKEY_DIR}")
+
 SECTIONS = [
     ("Python", 1, 20),
     ("EDA", 21, 40),
@@ -47,16 +61,16 @@ def parse_sectionwise_block(text):
     key = {}
     current_section = None
     lines = [l.strip() for l in text.splitlines() if l.strip()]
+    # Build case-insensitive alias map for quick lookup
+    alias_map = {k.lower(): v for k, v in ALIASES.items()}
+    section_names_lower = {s.lower(): s for s in SECTION_NAMES}
     for line in lines:
-        # Section header?
-        section = None
-        check = line.lower()
-        for s in SECTION_NAMES:
-            if check == s.lower():
-                section = s
-                break
-        if section or line in ALIASES:
-            current_section = ALIASES.get(line, section or line)
+        # Section header? (case-insensitive)
+        check = line.strip().lower().rstrip(':')
+        section = section_names_lower.get(check)
+        if section or check in alias_map:
+            # prefer alias mapping, otherwise canonical section name
+            current_section = alias_map.get(check, section or line)
             if current_section not in key:
                 key[current_section] = {}
             continue
@@ -66,7 +80,7 @@ def parse_sectionwise_block(text):
             ans = m.group(2).replace(" ", "").lower()
             key[current_section][f"Q{qn}"] = ans
     # Drop empty sections
-    key = {sec:v for sec,v in key.items() if v}
+    key = {sec: v for sec, v in key.items() if v}
     return key
 
 @app.post("/create-bulk-answerkey")
@@ -84,6 +98,12 @@ def key_exists(set_name: str):
     path = os.path.join(ANSWERKEY_DIR, f"answers_{set_name.upper()}.json")
     return {"exists": os.path.exists(path)}
 
+ALLOWED_EXT = {".jpg", ".jpeg", ".png"}
+
+def _sanitize_filename(name: str) -> str:
+    # simple sanitize: keep alphanum, dash, underscore
+    return re.sub(r"[^A-Za-z0-9_\-\.]", "_", name)
+
 @app.post("/upload-omr")
 async def upload_omr(
     student_name: str = Form(...),
@@ -91,13 +111,25 @@ async def upload_omr(
     omr_set: str = Form(...),
     file: UploadFile = File(...)
 ):
-    set_dir = os.path.join(UPLOAD_DIR, omr_set.upper())
+    # normalize set name to folder-safe form
+    set_folder = re.sub(r'^(set\s*)', '', omr_set.strip(), flags=re.I).strip().upper()
+    set_dir = os.path.join(UPLOAD_DIR, set_folder)
     os.makedirs(set_dir, exist_ok=True)
-    ext = os.path.splitext(file.filename)[1]
-    base_fname = f"{student_name.replace(' ','_')}_{roll_no}_{omr_set.upper()}{ext}"
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in ALLOWED_EXT:
+        raise HTTPException(400, "Unsupported file type. Use jpg / jpeg / png")
+
+    safe_name = _sanitize_filename(student_name.replace(' ','_'))
+    safe_roll = _sanitize_filename(roll_no)
+    base_fname = f"{safe_name}_{safe_roll}_{set_folder}{ext}"
     save_path = os.path.join(set_dir, base_fname)
-    with open(save_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    try:
+        with open(save_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+    except Exception as e:
+        logger.exception("Failed saving uploaded OMR")
+        raise HTTPException(500, f"Failed to save file: {e}")
     return JSONResponse({"omr_path": save_path, "filename": base_fname})
 
 @app.post("/evaluate")
@@ -107,7 +139,8 @@ async def evaluate(
     omr_set: str = Form(...),
     csv_filename: str = Form(None)
 ):
-    set_name = omr_set.strip().replace("SET ", "").replace("Set ", "").replace("set ", "").replace(" ", "").upper()
+    # Normalize set names: remove leading "set" word but don't remove all spaces/characters
+    set_name = re.sub(r'^(set\s*)', '', omr_set.strip(), flags=re.I).strip().upper()
     anskey_file = os.path.join(ANSWERKEY_DIR, f"answers_{set_name}.json")
     if not os.path.exists(anskey_file):
         raise HTTPException(400, f"Answer key for set {set_name} not found. Upload that first.")
@@ -245,9 +278,27 @@ def health_check():
 
 @app.get("/", response_class=HTMLResponse)
 def root():
-    """Root endpoint - serve main HTML page"""
-    with open("index.html", "r") as f:
-        return f.read()
+    """Root endpoint - serve main HTML page or fallback if index.html missing"""
+    index_path = "index.html"
+    if os.path.exists(index_path):
+        # prefer real file
+        return FileResponse(index_path, media_type="text/html")
+    # fallback simple page with links
+    return HTMLResponse("""
+    <html>
+      <head><title>OMR API</title></head>
+      <body>
+        <h1>OMR API</h1>
+        <p>Service is running. Use the endpoints below:</p>
+        <ul>
+          <li><a href="/health">/health</a></li>
+          <li><a href="/docs">/docs</a></li>
+          <li><a href="/answer-key-sets">/answer-key-sets</a></li>
+          <li><a href="/csv-files">/csv-files</a></li>
+        </ul>
+      </body>
+    </html>
+    """)
 
 @app.get("/streamlit", response_class=HTMLResponse)
 def streamlit_app():

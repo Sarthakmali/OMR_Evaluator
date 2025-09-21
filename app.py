@@ -3,6 +3,7 @@ import requests
 import pandas as pd
 import time
 import os
+import re
 
 # Dynamic API base URL for cloud deployment
 API_BASE = os.getenv("API_BASE_URL", "http://localhost:8000")
@@ -208,17 +209,21 @@ if st.button("Save OMR & Score"):
     elif not st.session_state.selected_csv_file:
         st.error("⚠️ Please select a CSV file for data storage above.")
     else:
-        files = {"file": (omr_file.name, omr_file.read(), "image/jpeg")}
-        data = {"student_name": student_name, "roll_no": roll_no, "omr_set": sel_set.upper()}
+        # normalize set (remove leading "Set " if present) to match backend filenames
+        norm_set = re.sub(r'^(set\s*)', '', sel_set.strip(), flags=re.I).upper()
+        # determine mime type from uploaded file or fallback by extension
+        mimetype = getattr(omr_file, "type", None) or ("image/" + os.path.splitext(omr_file.name)[1].lstrip('.').lower())
+        files = {"file": (omr_file.name, omr_file.read(), mimetype)}
+        data = {"student_name": student_name, "roll_no": roll_no, "omr_set": norm_set}
         r = requests.post(API_BASE + "/upload-omr", files=files, data=data)
         if not r.ok:
             st.error("Failed to save OMR: " + r.text)
         else:
             # Prepare evaluation data with selected CSV file
             evaldata = {
-                "student_name": student_name, 
-                "roll_no": roll_no, 
-                "omr_set": sel_set.upper(),
+                "student_name": student_name,
+                "roll_no": roll_no,
+                "omr_set": norm_set,
                 "csv_filename": st.session_state.selected_csv_file
             }
             evalres = requests.post(API_BASE + "/evaluate", data=evaldata)

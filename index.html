@@ -1,29 +1,29 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OMR Scoring Application</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            font-family: Arial, sans-serif;
-            background-color: #f0f2f6;
-        }
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px;
-            text-align: center;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .header h1 {
-            margin: 0;
-            font-size: 2.5em;
-            font-weight: 300;
-        }
-        .header p {
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>OMR API</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <style>body{font-family:Arial,Helvetica,sans-serif;max-width:900px;margin:40px auto;color:#333;padding:0 20px}</style>
+  </head>
+  <body>
+    <h1>OMR API</h1>
+    <p>Service running. Useful endpoints:</p>
+    <ul>
+      <li><a href="/health" target="_blank">/health</a></li>
+      <li><a href="/docs" target="_blank">/docs</a></li>
+      <li><a href="/answer-key-sets" target="_blank">/answer-key-sets</a></li>
+      <li><a href="/csv-files" target="_blank">/csv-files</a></li>
+    </ul>
+    <hr>
+    <p>Deployment: git add ., commit, push → connect repo to Railway (or use Dockerfile locally).</p>
+  </body>
+</html>
+      <li>Create Railway project → Deploy from GitHub → select this repo</li>
+      <li>Railway will run the Procfile and set $PORT</li>
+    </ol>
+  </body>
+</html>
             margin: 10px 0 0 0;
             font-size: 1.2em;
             opacity: 0.9;

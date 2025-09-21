@@ -152,17 +152,37 @@ def omr_detect_and_score(image_path, answerkey_path):
     with open(answerkey_path, "r") as f:
         answer_key = json.load(f)
     # The answer_key is also sectionwise
-    
+
     def norm(ans): return "".join(sorted(ans.replace(",", "").replace(" ", "").lower()))
+
+    def lookup_key_answer(keysubs, qlabel):
+        # Try canonical formats: "Q1" then "1" then numeric without Q, case-insensitive keys
+        if not keysubs:
+            return ""
+        # direct
+        if qlabel in keysubs:
+            return keysubs[qlabel]
+        # try without leading 'Q' or 'q'
+        if qlabel.startswith("Q") and qlabel[1:] in keysubs:
+            return keysubs[qlabel[1:]]
+        # try lowercase key forms
+        low_map = {k.lower(): v for k, v in keysubs.items()}
+        if qlabel.lower() in low_map:
+            return low_map[qlabel.lower()]
+        if qlabel.lower().lstrip('q') in low_map:
+            return low_map[qlabel.lower().lstrip('q')]
+        return ""
+
     section_scores = {}
     total = 0
     for section in SECTION_MAP:
-        subs = detected_sectionwise[section]
+        subs = detected_sectionwise.get(section, {})
         keysubs = answer_key.get(section, {})
         count = 0
         for q in subs:
-            stu_ans = norm(subs.get(q,""))
-            key_ans = norm(keysubs.get(q[1:] if section=="Python" else q,"")) # keys might be Q1 or 1; patch as you need
+            stu_ans = norm(subs.get(q, ""))
+            raw_key_ans = lookup_key_answer(keysubs, q)
+            key_ans = norm(raw_key_ans)
             if stu_ans and key_ans and stu_ans == key_ans:
                 count += 1
         section_scores[section] = count

@@ -1,0 +1,47 @@
+name: Smoke Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Start uvicorn in background
+        run: |
+          nohup uvicorn main:app --host 0.0.0.0 --port 8000 > /tmp/uvicorn.log 2>&1 &
+          for i in {1..30}; do
+            if curl -sSf http://127.0.0.1:8000/health >/dev/null 2>&1; then
+              echo "health ok"
+              break
+            fi
+            echo "waiting for app..."
+            sleep 1
+          done
+          curl -sS http://127.0.0.1:8000/health || (cat /tmp/uvicorn.log && exit 1)
+
+      - name: Run smoke tests
+        run: |
+          python -m pytest -q
+
+      - name: Dump uvicorn logs
+        if: always()
+        run: |
+          echo "==== uvicorn log ===="
+          tail -n +1 /tmp/uvicorn.log || true
+          tail -n +1 /tmp/uvicorn.log || true

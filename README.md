@@ -139,3 +139,32 @@ For issues and questions:
 1. Check the [DEPLOYMENT.md](DEPLOYMENT.md) guide
 2. Review the application logs
 3. Create an issue in the repository
+
+# OMR Scoring API
+
+Quick start
+1. Install deps: pip install -r requirements.txt
+2. Run locally: uvicorn main:app --reload
+3. Open: http://127.0.0.1:8000/docs and /health
+
+Deploy to Railway
+- Commit & push to GitHub.
+- Create new Railway project → Deploy from GitHub → select this repo.
+- Railway will use `Procfile` and `requirements.txt`. It provides `$PORT`.
+
+Optional: host Streamlit as a separate Railway service using `Procfile.streamlit`:
+- Add new Railway service from same repo, point to `Procfile.streamlit`.
+
+Useful endpoints (examples)
+- Create CSV:
+  curl -X POST "https://<HOST>/create-csv" -F "filename=scores"
+- Create answer key:
+  curl -X POST "https://<HOST>/create-bulk-answerkey" -F "set_name=A" -F "block=@temp_answers.txt;type=text/plain"
+- Upload OMR:
+  curl -X POST "https://<HOST>/upload-omr" -F "student_name=John" -F "roll_no=1" -F "omr_set=A" -F "file=@/path/to/omr.jpg"
+- Evaluate:
+  curl -X POST "https://<HOST>/evaluate" -F "student_name=John" -F "roll_no=1" -F "omr_set=A" -F "csv_filename=scores.csv"
+
+Notes
+- If deploying Streamlit publicly, use `Procfile.streamlit` as the service start command.
+- CI smoke tests run on pushes to `main` and validate basic endpoints.
