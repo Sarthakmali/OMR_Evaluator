@@ -9,9 +9,13 @@ def start_streamlit():
     """Start Streamlit in background"""
     time.sleep(5)  # Wait for FastAPI to start
     try:
+        # Get the port from environment variable
+        port = os.environ.get("PORT", "8000")
+        streamlit_port = str(int(port) + 1)
+        
         subprocess.run([
             sys.executable, "-m", "streamlit", "run", "app.py",
-            "--server.port", "8501",
+            "--server.port", streamlit_port,
             "--server.address", "0.0.0.0",
             "--server.headless", "true",
             "--server.enableCORS", "false",

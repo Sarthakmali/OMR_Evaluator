@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import os
 import json
@@ -8,6 +8,9 @@ import shutil
 import re
 import csv
 from pathlib import Path
+import subprocess
+import threading
+import time
 
 from omr_scoring import omr_detect_and_score
 
@@ -240,17 +243,52 @@ def health_check():
     """Health check endpoint for deployment"""
     return {"status": "healthy", "message": "OMR API is running"}
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 def root():
-    """Root endpoint with API information"""
-    return {
-        "message": "OMR Scoring API",
-        "version": "1.0.0",
-        "streamlit_app": "http://localhost:8501",
-        "endpoints": {
-            "health": "/health",
-            "docs": "/docs",
-            "answer_keys": "/answer-key-sets",
-            "csv_files": "/csv-files"
-        }
-    }
+    """Root endpoint - serve main HTML page"""
+    with open("index.html", "r") as f:
+        return f.read()
+
+@app.get("/streamlit", response_class=HTMLResponse)
+def streamlit_app():
+    """Streamlit app endpoint"""
+    # Start Streamlit in background if not already running
+    if not hasattr(app, 'streamlit_started'):
+        def start_streamlit():
+            time.sleep(2)
+            try:
+                subprocess.run([
+                    "streamlit", "run", "app.py",
+                    "--server.port", "8501",
+                    "--server.address", "0.0.0.0",
+                    "--server.headless", "true",
+                    "--server.enableCORS", "false",
+                    "--server.enableXsrfProtection", "false"
+                ], check=False)
+            except Exception as e:
+                print(f"Streamlit error: {e}")
+        
+        threading.Thread(target=start_streamlit, daemon=True).start()
+        app.streamlit_started = True
+    
+    # Return HTML that embeds Streamlit
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>OMR Scoring App</title>
+        <style>
+            body { margin: 0; padding: 0; }
+            iframe { width: 100%; height: 100vh; border: none; }
+        </style>
+    </head>
+    <body>
+        <iframe src="http://localhost:8501" onload="this.style.display='block'" style="display:none;">
+            <div style="text-align:center;padding:50px;">
+                <h2>Loading OMR Application...</h2>
+                <p>Please wait while the application starts.</p>
+            </div>
+        </iframe>
+    </body>
+    </html>
+    """
